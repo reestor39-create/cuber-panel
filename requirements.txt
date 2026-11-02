@@ -1,5 +1,5 @@
 ﻿Flask==3.0.3
 Flask-SocketIO==5.3.6
 gunicorn==22.0.0
-pg8000==1.31.2
-scramp==1.4.4
+pg8000==1.31.5
+scramp>=1.4.5
