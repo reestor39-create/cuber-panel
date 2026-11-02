@@ -1,7 +1,6 @@
 import os
 import json
-import pg8000.dbapi
-import ssl
+import psycopg2
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
@@ -15,27 +14,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 def get_db_connection():
     if not DATABASE_URL:
         raise Exception("DATABASE_URL is missing")
-    
-    # Убираем channel_binding из ссылки, так как мы сами настраиваем SSL
-    clean_url = DATABASE_URL.replace("&channel_binding=require", "")
-    
-    url = clean_url.replace("postgresql://", "").split("@")
-    user_pass = url[0].split(":")
-    host_db = url[1].split("/")
-    host_port = host_db[0].split(":")
-    
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-
-    return pg8000.dbapi.connect(
-        user=user_pass[0],
-        password=user_pass[1],
-        host=host_port[0],
-        port=int(host_port[1]) if len(host_port) > 1 else 5432,
-        database=host_db[1].split("?")[0],
-        ssl_context=ssl_context
-    )
+    # psycopg2 сам разбирает URL и сам делает SSL
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     try:
