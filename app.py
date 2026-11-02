@@ -1,6 +1,6 @@
-﻿import os
+import os
 import json
-import psycopg2
+import pg8000.dbapi
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
@@ -11,12 +11,27 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-def init_db():
+def get_db_connection():
     if not DATABASE_URL:
-        print("[-] ОШИБКА: DATABASE_URL не задан!")
-        return
+        raise Exception("DATABASE_URL is missing")
+    
+    # Парсим ссылку от Neon для pg8000
+    url = DATABASE_URL.replace("postgresql://", "").split("@")
+    user_pass = url[0].split(":")
+    host_db = url[1].split("/")
+    host_port = host_db[0].split(":")
+    
+    return pg8000.dbapi.connect(
+        user=user_pass[0],
+        password=user_pass[1],
+        host=host_port[0],
+        port=int(host_port[1]) if len(host_port) > 1 else 5432,
+        database=host_db[1].split("?")[0]
+    )
+
+def init_db():
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS logs (
             id SERIAL PRIMARY KEY,
@@ -28,7 +43,6 @@ def init_db():
             layout TEXT
         )''')
         conn.commit()
-        c.close()
         conn.close()
         print("[+] База данных успешно инициализирована!")
     except Exception as e:
@@ -42,6 +56,7 @@ def index():
 
 @app.route('/log', methods=['POST'])
 def log():
+    conn = None
     try:
         raw_data = request.get_data(as_text=True)
         data = json.loads(raw_data)
@@ -50,7 +65,7 @@ def log():
         timestamp = data.get("timestamp", datetime.now().isoformat())
         events = data.get("events", [])
 
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_db_connection()
         c = conn.cursor()
 
         for ev in events:
@@ -68,14 +83,14 @@ def log():
             })
 
         conn.commit()
-        c.close()
-        conn.close()
-
         return jsonify({"status": "ok", "command": "none", "server_time": datetime.now().isoformat()})
         
     except Exception as e:
         print(f"[-] Ошибка обработки пакета: {e}")
         return jsonify({"status": "error", "command": "none"}), 200
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
